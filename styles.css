@@ -1095,29 +1095,80 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .brand-pill {
+    display: none;
+  }
+
+  .status-pill {
+    display: none;
+  }
+
   .topbar__cluster {
     justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .topbar {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    gap: 8px;
+  }
+
+  .topbar-btn {
+    padding: 9px 12px;
+    border-radius: 14px;
+    font-size: 0.88rem;
   }
 
   .hud-stack {
     left: 12px;
     right: 12px;
-    bottom: 74px;
+    bottom: 12px;
     width: auto;
     transform: none;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .hud-card {
-    padding: 10px 12px;
+    padding: 8px 10px;
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
+    background: rgba(12, 24, 43, 0.58);
   }
 
   .hud-card--score strong {
-    font-size: 1.8rem;
+    font-size: 1.55rem;
   }
 
   .hud-card--effects {
     grid-column: span 2;
+  }
+
+  .hud-card span {
+    font-size: 0.72rem;
+  }
+
+  .hud-card strong {
+    margin-top: 4px;
+    font-size: 1.15rem;
+  }
+
+  #academyPointsValue,
+  #livesValue {
+    font-size: 1.15rem;
+  }
+
+  .hud-card--mobile-hide {
+    display: none;
+  }
+
+  .event-banner {
+    top: 56px;
+    max-width: calc(100vw - 24px);
+    padding: 8px 12px;
+    font-size: 0.82rem;
   }
 
   .quiz-actions {

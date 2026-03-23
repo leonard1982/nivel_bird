@@ -249,9 +249,22 @@ const dom = {
   topicStats: document.getElementById("topicStats")
 };
 
+const musicThemes = {
+  garden: { interval: 340, melody: [659, 784, 880, 988, 880, 784, 740, 659], bass: [220, 247, 262, 196, 220, 247, 196, 220], lead: "triangle", bassType: "sine", accent: "triangle", drums: ["kick", "hat", "snare", "hat", "kick", "hat", "snare", "hat"] },
+  night: { interval: 420, melody: [523, 659, 698, 659, 523, 494, 440, 494], bass: [131, 165, 175, 147, 131, 147, 110, 123], lead: "sine", bassType: "triangle", accent: "sine", drums: ["kick", "", "hat", "snare", "kick", "", "hat", "snare"] },
+  winter: { interval: 360, melody: [784, 880, 988, 880, 784, 698, 659, 698], bass: [196, 220, 247, 220, 196, 175, 165, 175], lead: "triangle", bassType: "sine", accent: "triangle", drums: ["kick", "hat", "hat", "snare", "kick", "hat", "hat", "snare"] },
+  lava: { interval: 280, melody: [392, 440, 523, 587, 523, 440, 392, 349], bass: [98, 98, 131, 147, 131, 110, 98, 87], lead: "square", bassType: "sawtooth", accent: "square", drums: ["kick", "kick", "snare", "hat", "kick", "kick", "snare", "hat"] },
+  canyon: { interval: 320, melody: [587, 659, 740, 659, 587, 523, 494, 523], bass: [147, 165, 185, 165, 147, 131, 123, 131], lead: "triangle", bassType: "square", accent: "triangle", drums: ["kick", "hat", "snare", "", "kick", "hat", "snare", "hat"] },
+  crystal: { interval: 300, melody: [784, 988, 1174, 988, 784, 880, 1046, 880], bass: [196, 247, 294, 247, 196, 220, 262, 220], lead: "triangle", bassType: "sine", accent: "triangle", drums: ["kick", "hat", "hat", "snare", "kick", "hat", "hat", "snare"] },
+  jungle: { interval: 310, melody: [659, 740, 880, 740, 659, 587, 659, 587], bass: [165, 185, 220, 185, 165, 147, 165, 147], lead: "square", bassType: "triangle", accent: "square", drums: ["kick", "hat", "snare", "hat", "kick", "hat", "snare", "hat"] },
+  ocean: { interval: 390, melody: [523, 587, 659, 740, 659, 587, 523, 494], bass: [131, 147, 165, 185, 165, 147, 131, 123], lead: "sine", bassType: "triangle", accent: "triangle", drums: ["kick", "", "hat", "", "kick", "snare", "hat", ""] },
+  bonus: { interval: 250, melody: [988, 1174, 1318, 1568, 1318, 1174, 988, 880], bass: [247, 294, 330, 392, 330, 294, 247, 220], lead: "square", bassType: "sine", accent: "triangle", drums: ["kick", "hat", "snare", "hat", "kick", "hat", "snare", "hat"] },
+  danger: { interval: 230, melody: [523, 587, 698, 784, 698, 587, 523, 466], bass: [98, 110, 131, 147, 131, 110, 98, 87], lead: "sawtooth", bassType: "square", accent: "square", drums: ["kick", "kick", "snare", "kick", "kick", "kick", "snare", "hat"] }
+};
+
 const ctx = dom.canvas.getContext("2d");
 const audioContext = setupAudio();
-const musicState = { timer: null, step: 0 };
+const musicState = { timer: null, step: 0, themeKey: "" };
 const storage = loadStorage();
 
 const state = {
@@ -611,6 +624,9 @@ function enterPortal(portal) {
   state.portalOfferKind = portal.kind;
   state.challengeSession = portal.kind === "bonus" ? null : createChallengeSession(portal.kind);
   state.mode = "portal";
+  if (portal.kind === "danger") {
+    sfxDangerPortal();
+  }
   setQuizScene(portal.kind === "bonus" ? "bonus" : "portal");
   dom.quizOverlay.classList.remove("hidden");
   dom.quizOptions.innerHTML = "";
@@ -879,6 +895,7 @@ function startLevelTransition(nextLevel) {
     elapsedMs: 0
   };
   stopMusic();
+  sfxLevelComplete();
   dom.levelTitle.textContent = `Nivel ${state.levelIndex + 1} completado`;
   dom.levelText.textContent = `Terminaste ${previousEnvironment.label}. Ahora vas hacia ${nextEnvironment.label}.`;
   dom.levelSummary.textContent = `Puntos: ${state.score} · Monedas: ${state.academyPoints} · Vidas: ${state.lives}`;
@@ -927,6 +944,7 @@ function startBonusRound() {
   dom.quizActions.classList.add("hidden");
   state.bird.vy = -6.4;
   state.bird.y = clamp(state.bird.y, 90, world.height - world.groundHeight - 90);
+  ensureMusic();
   showToast("Entraste al mundo bonus. Recoge todas las monedas que puedas.");
 }
 
@@ -3408,36 +3426,80 @@ function toggleAudio() {
 }
 
 function ensureMusic() {
-  if (!state.audioEnabled || !audioContext || state.mode !== "playing" || musicState.timer) {
+  if (!state.audioEnabled || !audioContext || (state.mode !== "playing" && state.mode !== "bonus") || musicState.timer) {
     return;
   }
   resumeAudio();
   musicState.step = 0;
-  playMusicStep();
-  musicState.timer = window.setInterval(playMusicStep, 320);
+  musicState.themeKey = "";
+  scheduleMusicStep(0);
 }
 
 function stopMusic() {
   if (musicState.timer) {
-    clearInterval(musicState.timer);
+    clearTimeout(musicState.timer);
     musicState.timer = null;
   }
+  musicState.themeKey = "";
+}
+
+function scheduleMusicStep(delay) {
+  musicState.timer = window.setTimeout(() => {
+    musicState.timer = null;
+    playMusicStep();
+  }, delay);
 }
 
 function playMusicStep() {
-  if (!audioContext || !state.audioEnabled || state.mode !== "playing") {
+  if (!audioContext || !state.audioEnabled || (state.mode !== "playing" && state.mode !== "bonus")) {
     return;
   }
 
-  const melody = [659, 784, 880, 988, 880, 784, 659, 587];
-  const bass = [220, 220, 247, 196, 220, 165, 196, 220];
-  const index = musicState.step % melody.length;
-  playTone(melody[index], 0.18, "triangle", 0.03);
-  playTone(bass[index], 0.22, "sine", 0.02);
-  if (index % 2 === 0) {
-    playTone(melody[index] * 0.5, 0.12, "triangle", 0.015);
+  const theme = getMusicTheme();
+  const index = musicState.step % theme.melody.length;
+  if (musicState.themeKey !== theme.key) {
+    musicState.themeKey = theme.key;
+    musicState.step = 0;
   }
+
+  playTone(theme.melody[index], 0.17, theme.lead, 0.03);
+  playTone(theme.bass[index % theme.bass.length], 0.23, theme.bassType, 0.022);
+  if (index % 2 === 0) {
+    playTone(theme.melody[index] * 0.5, 0.1, theme.accent, 0.014);
+  }
+  if (state.activeEvent?.id === "coin_rain" || state.activeEvent?.id === "prism_bonus") {
+    playTone(theme.melody[index] * 1.5, 0.08, "triangle", 0.01);
+  }
+  if (theme.key === "danger") {
+    playTone(theme.bass[index % theme.bass.length] * 0.5, 0.12, "sawtooth", 0.012);
+  }
+  playPercussion(theme.drums[index % theme.drums.length]);
   musicState.step += 1;
+  scheduleMusicStep(theme.interval);
+}
+
+function getMusicTheme() {
+  if (state.mode === "bonus") {
+    return { key: "bonus", ...musicThemes.bonus };
+  }
+  if (state.lives === 1) {
+    const env = getEnvironment().id;
+    const baseTheme = musicThemes[env] || musicThemes.garden;
+    return {
+      key: `${env}-danger`,
+      ...baseTheme,
+      interval: Math.max(210, baseTheme.interval - 60),
+      lead: "sawtooth",
+      accent: "square",
+      drums: ["kick", "kick", "snare", "kick", "kick", "hat", "snare", "kick"]
+    };
+  }
+  if (state.portals.some((portal) => portal.kind === "danger") || state.portalOfferKind === "danger" || state.activeEvent?.id === "heat_wave") {
+    return { key: "danger", ...musicThemes.danger };
+  }
+
+  const env = getEnvironment().id;
+  return { key: env, ...(musicThemes[env] || musicThemes.garden) };
 }
 
 function sfxStart() {
@@ -3471,6 +3533,18 @@ function sfxPurchase() {
   playTone(660, 0.07, "square", 0.05);
   window.setTimeout(() => playTone(880, 0.08, "triangle", 0.045), 90);
   window.setTimeout(() => playTone(1108, 0.08, "triangle", 0.04), 170);
+}
+
+function sfxLevelComplete() {
+  playTone(784, 0.1, "triangle", 0.05);
+  window.setTimeout(() => playTone(988, 0.1, "triangle", 0.045), 120);
+  window.setTimeout(() => playTone(1174, 0.14, "triangle", 0.04), 250);
+}
+
+function sfxDangerPortal() {
+  playTone(392, 0.09, "sawtooth", 0.04);
+  window.setTimeout(() => playTone(311, 0.09, "sawtooth", 0.04), 90);
+  window.setTimeout(() => playTone(466, 0.12, "square", 0.035), 170);
 }
 
 function sfxWrong() {
@@ -3512,6 +3586,24 @@ function playTone(frequency, duration, type, volume) {
   gain.connect(audioContext.destination);
   oscillator.start(now);
   oscillator.stop(now + duration);
+}
+
+function playPercussion(kind) {
+  if (!kind) {
+    return;
+  }
+  if (kind === "kick") {
+    playTone(90, 0.08, "sine", 0.035);
+    return;
+  }
+  if (kind === "snare") {
+    playTone(180, 0.05, "square", 0.02);
+    playTone(320, 0.04, "triangle", 0.012);
+    return;
+  }
+  if (kind === "hat") {
+    playTone(1400, 0.03, "square", 0.01);
+  }
 }
 
 function createBird() {
