@@ -1,4 +1,4 @@
-const CACHE_NAME = "flappy-kids-academy-v2";
+const CACHE_NAME = "flappy-kids-academy-v3";
 const ASSETS = [
   "./",
   "./index.html",

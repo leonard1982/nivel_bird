@@ -1,5 +1,6 @@
 const STORAGE_KEY = "flappyKidsAcademy.v2";
 const PORTAL_PROGRESS_MAX = 18;
+const LEVEL_LENGTH = 6;
 const APP_META = {
   version: "1.0.0",
   publishedAt: "2026-03-22",
@@ -14,7 +15,7 @@ const GITHUB_URLS = {
   repo: `https://github.com/${GITHUB_REPO.owner}/${GITHUB_REPO.repo}`,
   releases: `https://github.com/${GITHUB_REPO.owner}/${GITHUB_REPO.repo}/releases`,
   commitsApi: `https://api.github.com/repos/${GITHUB_REPO.owner}/${GITHUB_REPO.repo}/commits?sha=${GITHUB_REPO.branch}&per_page=1`,
-  releasesApi: `https://api.github.com/repos/${GITHUB_REPO.owner}/${GITHUB_REPO.repo}/releases/latest`
+  releasesApi: `https://api.github.com/repos/${GITHUB_REPO.owner}/${GITHUB_REPO.repo}/releases?per_page=1`
 };
 
 const difficulties = [
@@ -74,10 +75,10 @@ const tips = [
 ];
 
 const upgradeCatalog = [
-  { id: "starterShield", name: "Escudo inicial", maxLevel: 3, baseCost: 10, description: "Empiezas cada vuelo con más tiempo de escudo." },
-  { id: "extraHeart", name: "Corazón extra", maxLevel: 2, baseCost: 16, description: "Aumenta las vidas máximas del pajarito." },
-  { id: "academyBoost", name: "Multiplicador premio", maxLevel: 3, baseCost: 14, description: "Cada reto correcto entrega más puntos premio." },
-  { id: "portalScout", name: "Portal amable", maxLevel: 2, baseCost: 12, description: "Los portales aparecen con más espacio y menos peligro cerca." }
+  { id: "starterShield", name: "Escudo inicial", icon: "🛡️", maxLevel: 3, baseCost: 10, description: "Empiezas cada vuelo con más tiempo de escudo." },
+  { id: "extraHeart", name: "Corazón extra", icon: "❤️", maxLevel: 2, baseCost: 16, description: "Aumenta las vidas máximas del pajarito." },
+  { id: "academyBoost", name: "Monedas dobles", icon: "🪙", maxLevel: 3, baseCost: 14, description: "Cada reto correcto entrega más monedas premio." },
+  { id: "portalScout", name: "Portal suave", icon: "🌈", maxLevel: 2, baseCost: 12, description: "Los portales aparecen con más espacio y menos peligro cerca." }
 ];
 
 const missionCatalog = [
@@ -184,14 +185,20 @@ const dom = {
   quizActions: document.getElementById("quizActions"),
   quizPrimaryBtn: document.getElementById("quizPrimaryBtn"),
   quizSecondaryBtn: document.getElementById("quizSecondaryBtn"),
+  levelOverlay: document.getElementById("levelOverlay"),
+  levelTitle: document.getElementById("levelTitle"),
+  levelText: document.getElementById("levelText"),
+  levelSummary: document.getElementById("levelSummary"),
+  levelLoaderFill: document.getElementById("levelLoaderFill"),
+  levelHint: document.getElementById("levelHint"),
   toast: document.getElementById("toast"),
   menuToggleBtn: document.getElementById("menuToggleBtn"),
   closeDrawerBtn: document.getElementById("closeDrawerBtn"),
   drawer: document.getElementById("configDrawer"),
   drawerBackdrop: document.getElementById("drawerBackdrop"),
   installBtn: document.getElementById("installBtn"),
-  downloadWindowsBtn: document.getElementById("downloadWindowsBtn"),
-  downloadAndroidBtn: document.getElementById("downloadAndroidBtn"),
+  downloadWindowsBtnTop: document.getElementById("downloadWindowsBtnTop"),
+  downloadAndroidBtnTop: document.getElementById("downloadAndroidBtnTop"),
   audioToggleBtn: document.getElementById("audioToggleBtn"),
   pauseBtn: document.getElementById("pauseBtn"),
   restartBtn: document.getElementById("restartBtn"),
@@ -260,7 +267,7 @@ const state = {
   bird: createBird(),
   effects: { shield: 0, slow: 0, wings: 0 },
   spawnTimer: 0,
-  nextPortalAt: getInitialPortalTarget(),
+  nextPortalAt: getInitialPortalTarget(storage.difficulty || difficulties[1].id),
   portalPending: false,
   quizQuestion: null,
   challengeSession: null,
@@ -290,7 +297,10 @@ const state = {
   },
   portalReadyAt: null,
   recentQuestionPrompts: [],
-  recentPortalKinds: []
+  recentPortalKinds: [],
+  portalCount: 0,
+  levelIndex: 0,
+  levelTransition: null
 };
 
 init();
@@ -304,10 +314,10 @@ function init() {
   populateSelect(dom.learningTopicSelect, learningTopics);
 
   dom.playerName.value = state.playerName;
-  dom.difficultySelect.value = state.difficulty;
-  dom.skinSelect.value = state.skin;
-  dom.ageGroupSelect.value = state.ageGroup;
-  dom.learningTopicSelect.value = state.learningTopic;
+  state.difficulty = setSelectValue(dom.difficultySelect, state.difficulty, difficulties[1].id);
+  state.skin = setSelectValue(dom.skinSelect, state.skin, skins[0].id);
+  state.ageGroup = setSelectValue(dom.ageGroupSelect, state.ageGroup, ageGroups[1].id);
+  state.learningTopic = setSelectValue(dom.learningTopicSelect, state.learningTopic, learningTopics[0].id);
   dom.tipText.textContent = tips[0];
 
   resizeCanvas();
@@ -324,6 +334,8 @@ function init() {
   renderTopicStats();
   bindEvents();
   registerPwa();
+  persistAll();
+  window.setTimeout(syncFormDefaults, 40);
   checkForUpdates(true);
   requestAnimationFrame(loop);
 }
@@ -337,8 +349,8 @@ function bindEvents() {
 
   dom.audioToggleBtn.addEventListener("click", toggleAudio);
   dom.installBtn.addEventListener("click", handleInstallClick);
-  dom.downloadWindowsBtn.addEventListener("click", () => handleDownloadClick("windows"));
-  dom.downloadAndroidBtn.addEventListener("click", () => handleDownloadClick("android"));
+  dom.downloadWindowsBtnTop.addEventListener("click", () => handleDownloadClick("windows"));
+  dom.downloadAndroidBtnTop.addEventListener("click", () => handleDownloadClick("android"));
   dom.checkUpdatesBtn.addEventListener("click", () => checkForUpdates(false));
   dom.updateNowBtn.addEventListener("click", openUpdatePage);
   dom.pauseBtn.addEventListener("click", () => {
@@ -427,6 +439,15 @@ function bindEvents() {
         resumeGame();
       }
     }
+
+    if (event.code === "Escape") {
+      event.preventDefault();
+      if (state.mode === "playing" || state.mode === "bonus") {
+        pauseGame();
+      } else if (state.mode === "paused") {
+        resumeGame();
+      }
+    }
   });
 }
 
@@ -479,9 +500,13 @@ function startGame() {
   state.tick = 0;
   state.lastGapCenter = null;
   state.environmentIndex = 0;
+  state.portalCount = 0;
+  state.levelIndex = 0;
+  state.levelTransition = null;
 
   setEnvironmentByScore(true);
   dom.quizOverlay.classList.add("hidden");
+  dom.levelOverlay.classList.add("hidden");
   dom.quizActions.classList.add("hidden");
   dom.quizStatus.textContent = "";
   dom.quizFeedback.textContent = "";
@@ -759,6 +784,58 @@ function setQuizScene(scene) {
   dom.quizOverlay.dataset.scene = scene;
 }
 
+function maybeAdvanceLevel() {
+  const nextLevel = Math.floor(state.score / LEVEL_LENGTH);
+  if (nextLevel <= state.levelIndex || nextLevel === 0) {
+    return;
+  }
+  startLevelTransition(nextLevel);
+}
+
+function startLevelTransition(nextLevel) {
+  const previousEnvironment = getEnvironment();
+  const nextEnvironment = environments[nextLevel % environments.length];
+  state.mode = "level-transition";
+  state.levelTransition = {
+    nextLevel,
+    fromLabel: previousEnvironment.label,
+    toLabel: nextEnvironment.label,
+    durationMs: 2400,
+    elapsedMs: 0
+  };
+  stopMusic();
+  dom.levelTitle.textContent = `Nivel ${state.levelIndex + 1} completado`;
+  dom.levelText.textContent = `Terminaste ${previousEnvironment.label}. Ahora vas hacia ${nextEnvironment.label}.`;
+  dom.levelSummary.textContent = `Puntos: ${state.score} · Monedas: ${state.academyPoints} · Vidas: ${state.lives}`;
+  dom.levelHint.textContent = "Cargando el siguiente mundo...";
+  dom.levelLoaderFill.style.width = "0%";
+  dom.levelOverlay.classList.remove("hidden");
+}
+
+function tickLevelTransition(deltaMs) {
+  if (!state.levelTransition) {
+    return;
+  }
+  state.levelTransition.elapsedMs += deltaMs;
+  const ratio = clamp(state.levelTransition.elapsedMs / state.levelTransition.durationMs, 0, 1);
+  dom.levelLoaderFill.style.width = `${ratio * 100}%`;
+
+  if (ratio < 1) {
+    return;
+  }
+
+  state.levelIndex = state.levelTransition.nextLevel;
+  state.environmentIndex = state.levelIndex % environments.length;
+  state.levelTransition = null;
+  state.mode = "playing";
+  state.lastTime = 0;
+  regenerateAmbient();
+  syncProfileSummary();
+  dom.levelOverlay.classList.add("hidden");
+  ensureMusic();
+  showToast(`Nivel ${state.levelIndex + 1}: ${getEnvironment().label}.`);
+}
+
 function startBonusRound() {
   const world = getWorld();
   state.mode = "bonus";
@@ -804,6 +881,7 @@ function finishBonusRound() {
   dom.quizFeedback.textContent = `Ganaste +${academyGain} monedas premio y +${scoreGain} puntos de juego.`;
   state.bonusSession = null;
   syncEventBanner();
+  maybeAdvanceLevel();
   persistAll();
   syncStats();
 }
@@ -858,6 +936,7 @@ function resumeFromChallenge(message) {
   dom.quizActions.classList.add("hidden");
   syncEventBanner();
   ensureMusic();
+  maybeAdvanceLevel();
   showToast(message);
 }
 
@@ -879,6 +958,11 @@ function update(dt, deltaMs) {
   tickEvent(deltaMs);
   state.damageFlashMs = Math.max(0, state.damageFlashMs - deltaMs);
   state.cameraShakeMs = Math.max(0, state.cameraShakeMs - deltaMs);
+
+  if (state.mode === "level-transition") {
+    tickLevelTransition(deltaMs);
+    return;
+  }
 
   if (state.mode === "idle" || state.mode === "gameover") {
     floatBirdIdle();
@@ -991,15 +1075,6 @@ function updateAmbient(dt, deltaMs) {
     }
   });
 
-  if (deltaMs > 0 && state.mode === "playing") {
-    const nextIndex = Math.floor(state.score / 6) % environments.length;
-    if (nextIndex !== state.environmentIndex) {
-      state.environmentIndex = nextIndex;
-      regenerateAmbient();
-      syncProfileSummary();
-      showToast(`Nuevo ambiente: ${getEnvironment().label}.`);
-    }
-  }
 }
 
 function updateBird(dt, world) {
@@ -1038,6 +1113,7 @@ function updatePipes(dt, speed, world) {
       }
       sfxScore();
       spawnBurst(world.birdX + 18, state.bird.y - 10, "#ffe066", 8, 1.1);
+      maybeAdvanceLevel();
       syncStats();
       persistAll();
     }
@@ -1223,6 +1299,7 @@ function maybeSpawnSet(preset, world) {
     state.portalPending = false;
     state.portalReadyAt = null;
     rememberPortalKind(portalKind);
+    state.portalCount += 1;
     const scoutOffset = 80 + state.upgrades.portalScout * 40;
     state.portals.push({
       x: pipeX + world.pipeWidth + randomBetween(scoutOffset, scoutOffset + 60),
@@ -2200,6 +2277,35 @@ function populateSelect(select, options) {
     element.textContent = option.label;
     select.appendChild(element);
   });
+  if (select.options.length > 0 && select.selectedIndex < 0) {
+    select.selectedIndex = 0;
+  }
+}
+
+function setSelectValue(select, value, fallback) {
+  const optionValues = Array.from(select.options).map((option) => option.value);
+  const nextValue = optionValues.includes(value) ? value : fallback;
+  const nextIndex = Math.max(0, optionValues.indexOf(nextValue));
+  if (select.options.length > 0) {
+    select.selectedIndex = nextIndex;
+    select.value = select.options[nextIndex].value;
+    select.options[nextIndex].selected = true;
+  }
+  if (!select.value && select.options.length > 0) {
+    select.selectedIndex = 0;
+    select.options[0].selected = true;
+    return select.options[0].value;
+  }
+  return select.value || nextValue;
+}
+
+function syncFormDefaults() {
+  state.difficulty = setSelectValue(dom.difficultySelect, state.difficulty, difficulties[1].id);
+  state.skin = setSelectValue(dom.skinSelect, state.skin, skins[0].id);
+  state.ageGroup = setSelectValue(dom.ageGroupSelect, state.ageGroup, ageGroups[1].id);
+  state.learningTopic = setSelectValue(dom.learningTopicSelect, state.learningTopic, learningTopics[0].id);
+  syncProfileSummary();
+  persistAll();
 }
 
 function resizeCanvas() {
@@ -2267,7 +2373,7 @@ function getEnvironment() {
 }
 
 function setEnvironmentByScore(force) {
-  const nextIndex = Math.floor(state.score / 6) % environments.length;
+  const nextIndex = state.levelIndex % environments.length;
   if (force || nextIndex !== state.environmentIndex) {
     state.environmentIndex = nextIndex;
     regenerateAmbient();
@@ -2505,30 +2611,30 @@ function getAcademyMultiplier() {
   return multiplier;
 }
 
-function getPortalStepRange() {
-  if (state.difficulty === "muy-facil") return [10, 13];
-  if (state.difficulty === "facil") return [11, 14];
-  if (state.difficulty === "intermedio") return [12, 16];
+function getPortalStepRange(difficultyId = state.difficulty) {
+  if (difficultyId === "muy-facil") return [10, 13];
+  if (difficultyId === "facil") return [11, 14];
+  if (difficultyId === "intermedio") return [12, 16];
   return [14, 18];
 }
 
-function getInitialPortalTarget() {
-  const [minStep] = getPortalStepRange();
+function getInitialPortalTarget(difficultyId = state.difficulty) {
+  const [minStep] = getPortalStepRange(difficultyId);
   return minStep;
 }
 
-function scheduleNextPortal(baseScore) {
-  const [minStep, maxStep] = getPortalStepRange();
+function scheduleNextPortal(baseScore, difficultyId = state.difficulty) {
+  const [minStep, maxStep] = getPortalStepRange(difficultyId);
   state.nextPortalAt = baseScore + randomInt(minStep, maxStep);
 }
 
 function pickPortalKind() {
-  const choices = [];
-  choices.push("tunnel", "tunnel", "tree");
-  if (state.score >= 18) {
-    choices.push("bonus");
+  if (state.score >= 16 && (state.portalCount + 1) % 3 === 0) {
+    return "bonus";
   }
-  if (state.score >= 30) {
+
+  const choices = ["tunnel", "tunnel", "tree"];
+  if (state.score >= 28) {
     choices.push("bonus");
   }
 
@@ -2669,18 +2775,24 @@ function renderShop() {
     const cost = getUpgradeCost(upgrade, level);
     const isMax = level >= upgrade.maxLevel;
     return `
-      <article class="shop-card">
+      <article class="shop-card shop-card--playful">
         <div class="shop-card__head">
-          <h3>${upgrade.name}</h3>
-          <span class="level-badge">Nivel ${level}/${upgrade.maxLevel}</span>
+          <div class="shop-card__title">
+            <span class="shop-card__icon">${upgrade.icon}</span>
+            <div>
+              <h3>${upgrade.name}</h3>
+              <p class="shop-card__caption">Nivel ${level} de ${upgrade.maxLevel}</p>
+            </div>
+          </div>
+          <span class="level-badge">${isMax ? "Listo" : "Mejora"}</span>
         </div>
         <p>${upgrade.description}</p>
-        <div class="shop-card__head">
-          <span class="price-badge">${isMax ? "Completo" : `${cost} pts`}</span>
+        <div class="shop-card__facts">
+          <span class="price-badge">${isMax ? "Completo" : `${cost} monedas`}</span>
           <span class="topic-badge">${upgradeEffectText(upgrade.id, level)}</span>
         </div>
         <button class="secondary-btn" type="button" data-upgrade-id="${upgrade.id}" ${isMax ? "disabled" : ""}>
-          ${isMax ? "Mejora máxima" : "Comprar mejora"}
+          ${isMax ? "Ya lo tienes completo" : "Lo quiero"}
         </button>
       </article>
     `;
@@ -2802,13 +2914,13 @@ function registerTopicAttempt(topicId, isCorrect) {
 function syncInstallButton() {
   const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
   if (standalone) {
-    dom.installBtn.textContent = "App instalada";
+    dom.installBtn.textContent = "App instalada en este equipo";
     dom.installBtn.disabled = true;
     return;
   }
 
   dom.installBtn.disabled = false;
-  dom.installBtn.textContent = state.installPromptEvent ? "Instalar en celular" : "Instalar / ver ayuda";
+  dom.installBtn.textContent = state.installPromptEvent ? "Instalar app en este equipo" : "Instalar app / ver ayuda";
 }
 
 function syncUpdateUI() {
@@ -2818,11 +2930,11 @@ function syncUpdateUI() {
 
   const downloadsReady = Boolean(state.updateInfo.downloads.windows || state.updateInfo.downloads.android);
   dom.downloadHelp.textContent = downloadsReady
-    ? "Si ya hay archivos publicados en GitHub Releases, estos botones abren el instalador correcto."
-    : "Si todavía no hay instalador publicado, el botón te llevará a la página de lanzamientos del repositorio.";
+    ? "Los botones de descarga abren el instalador correcto para cada equipo."
+    : "Si aún no hay instalador listo, se abrirá la página de descarga más reciente.";
 
   if (!state.updateInfo.checkedAt) {
-    dom.updateSummary.textContent = "Todavía no se ha consultado GitHub.";
+    dom.updateSummary.textContent = "Todavía no se ha consultado si hay una versión nueva.";
     return;
   }
 
@@ -2877,7 +2989,7 @@ async function checkForUpdates(silent = false) {
     state.updateInfo.checkedAt = new Date().toISOString();
     syncUpdateUI();
     if (!silent) {
-      showToast("Sin conexión. No se pudo consultar GitHub.");
+      showToast("Sin conexión. No se pudo revisar si hay novedades.");
     }
     return;
   }
@@ -2905,7 +3017,18 @@ async function checkForUpdates(silent = false) {
     state.updateInfo.hasUpdate = false;
 
     if (releaseResponse && releaseResponse.ok) {
-      const release = await releaseResponse.json();
+      const releases = await releaseResponse.json();
+      const release = Array.isArray(releases) ? releases[0] : null;
+      if (!release) {
+        state.updateInfo.releaseUrl = GITHUB_URLS.releases;
+        state.updateInfo.downloads.windows = "";
+        state.updateInfo.downloads.android = "";
+        syncUpdateUI();
+        if (!silent) {
+          showToast("No hay versiones publicadas nuevas todavía.");
+        }
+        return;
+      }
       state.updateInfo.releaseUrl = release.html_url || GITHUB_URLS.releases;
       state.updateInfo.downloads.windows = findReleaseAssetUrl(release.assets, "windows");
       state.updateInfo.downloads.android = findReleaseAssetUrl(release.assets, "android");
@@ -2927,17 +3050,17 @@ async function checkForUpdates(silent = false) {
     if (!silent) {
       showToast(state.updateInfo.hasUpdate ? "Hay una actualización disponible." : "No hay actualizaciones nuevas.");
     } else if (state.updateInfo.hasUpdate && window.matchMedia("(display-mode: standalone)").matches) {
-      showToast("Tu app encontró una actualización en GitHub.");
+      showToast("Tu app encontró una actualización nueva.");
     }
   } catch (error) {
     state.updateInfo.checkedAt = new Date().toISOString();
     syncUpdateUI();
     if (!silent) {
-      showToast("No se pudo validar el repositorio ahora.");
+      showToast("No se pudo revisar si hay novedades ahora.");
     }
   } finally {
     dom.checkUpdatesBtn.disabled = false;
-    dom.checkUpdatesBtn.textContent = "Buscar actualizaciones";
+    dom.checkUpdatesBtn.textContent = "Buscar novedades";
   }
 }
 
@@ -2947,9 +3070,9 @@ function handleDownloadClick(platform) {
     : (state.updateInfo.downloads.android || state.updateInfo.releaseUrl || GITHUB_URLS.releases);
 
   if (platform === "windows" && !state.updateInfo.downloads.windows) {
-    showToast("Todavía no hay instalador de Windows publicado. Se abrirán los lanzamientos.");
+    showToast("Todavía no hay instalador de Windows listo. Se abrirá la descarga disponible.");
   } else if (platform === "android" && !state.updateInfo.downloads.android) {
-    showToast("Todavía no hay APK publicado. Se abrirán los lanzamientos.");
+    showToast("Todavía no hay instalador de Android listo. Se abrirá la descarga disponible.");
   }
 
   openExternalUrl(url);

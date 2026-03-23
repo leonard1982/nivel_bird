@@ -107,6 +107,21 @@
         </div>
       </div>
 
+      <div id="levelOverlay" class="level-overlay hidden" aria-live="polite">
+        <div class="level-card">
+          <p class="level-card__eyebrow">Nivel completado</p>
+          <h2 id="levelTitle">Pasando al siguiente mundo</h2>
+          <p id="levelText" class="level-card__text"></p>
+          <div class="level-card__summary">
+            <span id="levelSummary">Resumen</span>
+          </div>
+          <div class="level-loader">
+            <div id="levelLoaderFill" class="level-loader__fill"></div>
+          </div>
+          <p id="levelHint" class="level-card__hint">Preparando el siguiente reto...</p>
+        </div>
+      </div>
+
       <div id="toast" class="toast" aria-live="polite"></div>
     </main>
 
@@ -155,8 +170,15 @@
           <button id="restartBtn" class="secondary-btn" type="button">Reiniciar</button>
         </div>
         <div class="button-row button-row--single">
-          <button id="installBtn" class="secondary-btn install-btn" type="button">Instalar en celular</button>
+          <button id="installBtn" class="secondary-btn install-btn" type="button">Instalar app</button>
         </div>
+        <div class="download-grid download-grid--compact">
+          <button id="downloadWindowsBtnTop" class="secondary-btn download-btn" type="button">Descargar para Windows</button>
+          <button id="downloadAndroidBtnTop" class="secondary-btn download-btn" type="button">Descargar para Android</button>
+        </div>
+        <p id="downloadHelp" class="tip-box tip-box--soft">
+          Si aún no hay instalador disponible, se abrirá la página de descarga más reciente.
+        </p>
       </section>
 
       <section class="drawer-panel">
@@ -207,22 +229,8 @@
 
       <section class="drawer-panel">
         <div class="leaderboard__head">
-          <span>Descargas</span>
-          <strong>Instaladores y app</strong>
-        </div>
-        <div class="download-grid">
-          <button id="downloadWindowsBtn" class="secondary-btn download-btn" type="button">Windows</button>
-          <button id="downloadAndroidBtn" class="secondary-btn download-btn" type="button">Android</button>
-        </div>
-        <p id="downloadHelp" class="tip-box tip-box--soft">
-          Si todavía no hay instalador publicado, el botón te llevará a la página de lanzamientos del repositorio.
-        </p>
-      </section>
-
-      <section class="drawer-panel">
-        <div class="leaderboard__head">
           <span>Actualizaciones</span>
-          <strong>Validar el repositorio</strong>
+          <strong>Novedades del juego</strong>
         </div>
         <div class="stats-grid">
           <article class="stat-card">
@@ -234,12 +242,12 @@
             <strong id="repoVersionValue">-</strong>
           </article>
         </div>
-        <p id="updateSummary" class="tip-box tip-box--soft">Todavía no se ha consultado GitHub.</p>
+        <p id="updateSummary" class="tip-box tip-box--soft">Todavía no se ha consultado si hay una versión nueva.</p>
         <div class="button-row button-row--single">
-          <button id="checkUpdatesBtn" class="secondary-btn" type="button">Buscar actualizaciones</button>
+          <button id="checkUpdatesBtn" class="secondary-btn" type="button">Buscar novedades</button>
         </div>
         <div class="button-row button-row--single">
-          <button id="updateNowBtn" class="primary-btn" type="button">Abrir actualización</button>
+          <button id="updateNowBtn" class="primary-btn" type="button">Actualizar ahora</button>
         </div>
       </section>
 

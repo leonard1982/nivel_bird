@@ -249,7 +249,8 @@ select {
 }
 
 .stage-overlay,
-.quiz-overlay {
+.quiz-overlay,
+.level-overlay {
   position: absolute;
   inset: 0;
   z-index: 5;
@@ -350,6 +351,12 @@ select {
     linear-gradient(180deg, rgba(8, 18, 26, 0.9), rgba(10, 22, 38, 0.96));
 }
 
+.level-overlay {
+  background:
+    radial-gradient(circle at top, rgba(255, 209, 102, 0.24), transparent 34%),
+    linear-gradient(180deg, rgba(7, 18, 31, 0.78), rgba(7, 18, 31, 0.92));
+}
+
 .quiz-card {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
@@ -358,6 +365,60 @@ select {
   border-radius: 36px;
   overflow: hidden;
   background: rgba(249, 252, 255, 0.98);
+}
+
+.level-card {
+  width: min(560px, 100%);
+  padding: 30px 26px;
+  border-radius: 32px;
+  background: rgba(251, 252, 255, 0.97);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.level-card__eyebrow {
+  margin: 0 0 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  font-weight: 900;
+  color: rgba(24, 35, 61, 0.56);
+}
+
+.level-card h2 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1;
+}
+
+.level-card__text,
+.level-card__hint {
+  margin: 14px 0 0;
+  line-height: 1.6;
+}
+
+.level-card__summary {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(255, 209, 102, 0.2), rgba(92, 200, 255, 0.16));
+  font-weight: 800;
+}
+
+.level-loader {
+  height: 16px;
+  margin-top: 20px;
+  border-radius: 999px;
+  background: rgba(24, 35, 61, 0.12);
+  overflow: hidden;
+}
+
+.level-loader__fill {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ff9f43, #ffd166, #5cc8ff);
 }
 
 .quiz-card__hero,
@@ -701,8 +762,13 @@ select {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.download-grid--compact {
+  margin-top: 10px;
+}
+
 .download-btn {
   width: 100%;
+  min-height: 54px;
 }
 
 .shop-card,
@@ -714,6 +780,12 @@ select {
   border: 1px solid rgba(27, 45, 76, 0.08);
 }
 
+.shop-card--playful {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(255, 247, 225, 0.98));
+  border: 1px solid rgba(255, 196, 61, 0.22);
+  box-shadow: 0 16px 30px rgba(255, 159, 67, 0.12);
+}
+
 .shop-card__head,
 .mission-card__head,
 .topic-card__head {
@@ -721,6 +793,22 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.shop-card__title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.shop-card__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #fff0ba, #ffd166);
+  font-size: 1.5rem;
 }
 
 .shop-card h3,
@@ -736,6 +824,20 @@ select {
   margin: 8px 0 0;
   color: var(--ink-soft);
   line-height: 1.45;
+}
+
+.shop-card__caption {
+  margin: 4px 0 0;
+  font-size: 0.82rem;
+  color: #6d7892;
+}
+
+.shop-card__facts {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .shop-card button {
