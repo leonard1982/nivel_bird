@@ -1,5 +1,5 @@
 const STORAGE_KEY = "flappyKidsAcademy.v2";
-const PORTAL_STEP = 7;
+const PORTAL_PROGRESS_MAX = 18;
 const APP_META = {
   version: "1.0.0",
   publishedAt: "2026-03-22",
@@ -260,7 +260,7 @@ const state = {
   bird: createBird(),
   effects: { shield: 0, slow: 0, wings: 0 },
   spawnTimer: 0,
-  nextPortalAt: PORTAL_STEP,
+  nextPortalAt: getInitialPortalTarget(),
   portalPending: false,
   quizQuestion: null,
   challengeSession: null,
@@ -287,7 +287,10 @@ const state = {
     hasUpdate: false,
     checkedAt: null,
     downloads: { windows: "", android: "" }
-  }
+  },
+  portalReadyAt: null,
+  recentQuestionPrompts: [],
+  recentPortalKinds: []
 };
 
 init();
@@ -393,7 +396,7 @@ function bindEvents() {
   dom.canvas.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     resumeAudio();
-    if (state.mode === "playing") {
+    if (state.mode === "playing" || state.mode === "bonus") {
       flapBird();
       return;
     }
@@ -406,7 +409,7 @@ function bindEvents() {
     if (event.code === "Space" || event.code === "ArrowUp") {
       event.preventDefault();
       resumeAudio();
-      if (state.mode === "playing") {
+      if (state.mode === "playing" || state.mode === "bonus") {
         flapBird();
       } else if (state.mode === "idle" || state.mode === "gameover") {
         startGame();
@@ -457,8 +460,9 @@ function startGame() {
   state.lives = state.maxLives;
   state.effects = { shield: 1600 + state.upgrades.starterShield * 900, slow: 0, wings: 0 };
   state.spawnTimer = 0;
-  state.nextPortalAt = PORTAL_STEP;
+  state.nextPortalAt = getInitialPortalTarget();
   state.portalPending = false;
+  state.portalReadyAt = null;
   state.quizQuestion = null;
   state.challengeSession = null;
   state.portalOfferKind = null;
@@ -561,7 +565,7 @@ function enterPortal(portal) {
     dom.quizSecondaryBtn.textContent = "Seguir volando";
     dom.quizPrompt.textContent = "Encontraste una puerta brillante";
     dom.quizStatus.textContent = "Podrás viajar a otro mundo por unos segundos para agarrar la mayor cantidad de monedas posible.";
-    dom.quizFeedback.textContent = "Si no quieres entrar, continúas la partida normal sin castigo.";
+    setQuizFeedback("Si no quieres entrar, continúas la partida normal sin castigo.", "neutral");
   } else {
     dom.quizEyebrow.textContent = portal.kind === "tree" ? "Árbol del saber" : "Túnel de retos";
     dom.quizSceneTitle.textContent = portal.kind === "tree" ? "Desafío de aprendizaje" : "Ruta de preguntas";
@@ -569,7 +573,7 @@ function enterPortal(portal) {
     dom.quizSecondaryBtn.textContent = "Seguir sin reto";
     dom.quizPrompt.textContent = portal.kind === "tree" ? "Entraste al Árbol del Saber" : "Entraste al Túnel de Retos";
     dom.quizStatus.textContent = `Reto opcional de ${state.challengeSession.total} preguntas para nivel ${getDifficulty().label}.`;
-    dom.quizFeedback.textContent = "Si aceptas, cada respuesta correcta suma puntos del juego, monedas y ventajas.";
+    setQuizFeedback("Si aceptas, cada respuesta correcta suma puntos del juego, monedas y ventajas.", "neutral");
   }
   updateMission("take_portals", 1);
 }
@@ -638,13 +642,13 @@ function renderChallengeQuestion() {
   dom.quizEyebrow.textContent = "Reto activo";
   dom.quizSceneTitle.textContent = `${labelFor(learningTopics, state.learningTopic)} · ${state.ageGroup}`;
   dom.quizPrompt.textContent = question.prompt;
-  dom.quizStatus.textContent = `Pregunta ${session.index + 1} de ${session.total}`;
-  dom.quizFeedback.textContent = "Lee con calma y toca la respuesta más correcta.";
+  dom.quizStatus.textContent = `Pregunta ${session.index + 1} de ${session.total} · Elige la mejor respuesta`;
+  setQuizFeedback("Lee con calma y toca la respuesta más correcta.", "neutral");
 
   question.options.forEach((option) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = option;
+    button.innerHTML = `<span class="quiz-option__tag">${String.fromCharCode(65 + dom.quizOptions.children.length)}</span><span class="quiz-option__text">${escapeHtml(option)}</span>`;
     button.addEventListener("click", () => answerQuiz(option));
     dom.quizOptions.appendChild(button);
   });
@@ -662,10 +666,10 @@ function answerQuiz(option) {
   if (option === state.quizQuestion.answer) {
     session.correct += 1;
     state.correctAnswers += 1;
-    dom.quizFeedback.textContent = `Correcto. ${state.quizQuestion.fact}`;
+    setQuizFeedback(`Correcto. ${state.quizQuestion.fact}`, "success");
     sfxCorrect();
   } else {
-    dom.quizFeedback.textContent = `La respuesta correcta era ${state.quizQuestion.answer}. ${state.quizQuestion.fact}`;
+    setQuizFeedback(`La respuesta correcta era ${state.quizQuestion.answer}. ${state.quizQuestion.fact}`, "error");
     sfxWrong();
   }
 
@@ -703,7 +707,7 @@ function finishChallengeSession() {
   dom.quizSceneTitle.textContent = session.kind === "tree" ? "Bosque del saber" : "Túnel completado";
   dom.quizPrompt.textContent = session.kind === "tree" ? "Reto del Árbol completado" : "Reto del Túnel completado";
   dom.quizStatus.textContent = `Aciertos: ${session.correct} de ${session.total}`;
-  dom.quizFeedback.textContent = buildRewardSummary(rewards);
+  setQuizFeedback(buildRewardSummary(rewards), "success");
   persistAll();
   syncStats();
 }
@@ -713,7 +717,17 @@ function buildQuestionSet(total) {
   const seenPrompts = new Set();
   let attempts = 0;
 
-  while (questions.length < total && attempts < total * 12) {
+  while (questions.length < total && attempts < total * 18) {
+    const question = buildQuestion();
+    attempts += 1;
+    if (seenPrompts.has(question.prompt) || state.recentQuestionPrompts.includes(question.prompt)) {
+      continue;
+    }
+    seenPrompts.add(question.prompt);
+    questions.push(question);
+  }
+
+  while (questions.length < total && attempts < total * 28) {
     const question = buildQuestion();
     attempts += 1;
     if (seenPrompts.has(question.prompt)) {
@@ -723,11 +737,22 @@ function buildQuestionSet(total) {
     questions.push(question);
   }
 
-  while (questions.length < total) {
-    questions.push(buildQuestion());
-  }
-
+  questions.forEach((question) => rememberQuestionPrompt(question.prompt));
   return questions;
+}
+
+function setQuizFeedback(text, tone = "neutral") {
+  dom.quizFeedback.textContent = text;
+  dom.quizFeedback.dataset.tone = tone;
+}
+
+function rememberQuestionPrompt(prompt) {
+  if (!prompt) {
+    return;
+  }
+  state.recentQuestionPrompts = state.recentQuestionPrompts.filter((item) => item !== prompt);
+  state.recentQuestionPrompts.push(prompt);
+  state.recentQuestionPrompts = state.recentQuestionPrompts.slice(-12);
 }
 
 function setQuizScene(scene) {
@@ -748,7 +773,7 @@ function startBonusRound() {
   };
   dom.quizOverlay.classList.add("hidden");
   dom.quizActions.classList.add("hidden");
-  state.bird.vy = -2.8;
+  state.bird.vy = -6.4;
   state.bird.y = clamp(state.bird.y, 90, world.height - world.groundHeight - 90);
   showToast("Entraste al mundo bonus. Recoge todas las monedas que puedas.");
 }
@@ -1147,9 +1172,7 @@ function maybeSpawnSet(preset, world) {
   if (state.activeEvent?.id === "moon_glow") hazardChance -= 0.04;
 
   const spawnPortal = state.portalPending && state.portals.length === 0 && state.mode === "playing";
-  const portalKind = spawnPortal
-    ? (state.score >= 10 && Math.random() < 0.28 ? "bonus" : Math.random() > 0.5 ? "tree" : "tunnel")
-    : null;
+  const portalKind = spawnPortal ? pickPortalKind() : null;
 
   if (Math.random() < collectibleChance) {
     const availablePowerups = powerups.filter((powerup) => powerup.id !== "coin");
@@ -1198,6 +1221,8 @@ function maybeSpawnSet(preset, world) {
 
   if (spawnPortal) {
     state.portalPending = false;
+    state.portalReadyAt = null;
+    rememberPortalKind(portalKind);
     const scoutOffset = 80 + state.upgrades.portalScout * 40;
     state.portals.push({
       x: pipeX + world.pipeWidth + randomBetween(scoutOffset, scoutOffset + 60),
@@ -2480,10 +2505,56 @@ function getAcademyMultiplier() {
   return multiplier;
 }
 
+function getPortalStepRange() {
+  if (state.difficulty === "muy-facil") return [10, 13];
+  if (state.difficulty === "facil") return [11, 14];
+  if (state.difficulty === "intermedio") return [12, 16];
+  return [14, 18];
+}
+
+function getInitialPortalTarget() {
+  const [minStep] = getPortalStepRange();
+  return minStep;
+}
+
+function scheduleNextPortal(baseScore) {
+  const [minStep, maxStep] = getPortalStepRange();
+  state.nextPortalAt = baseScore + randomInt(minStep, maxStep);
+}
+
+function pickPortalKind() {
+  const choices = [];
+  choices.push("tunnel", "tunnel", "tree");
+  if (state.score >= 18) {
+    choices.push("bonus");
+  }
+  if (state.score >= 30) {
+    choices.push("bonus");
+  }
+
+  let filtered = choices.slice();
+  const lastKind = state.recentPortalKinds[state.recentPortalKinds.length - 1];
+  if (lastKind && filtered.some((item) => item !== lastKind)) {
+    filtered = filtered.filter((item) => item !== lastKind);
+  }
+
+  return pickFrom(filtered);
+}
+
+function rememberPortalKind(kind) {
+  state.recentPortalKinds.push(kind);
+  state.recentPortalKinds = state.recentPortalKinds.slice(-3);
+}
+
 function updatePortalMilestones() {
-  while (state.score >= state.nextPortalAt) {
-    state.nextPortalAt += PORTAL_STEP;
+  if (state.portalPending) {
+    return;
+  }
+
+  if (state.score >= state.nextPortalAt) {
     state.portalPending = true;
+    state.portalReadyAt = state.nextPortalAt;
+    scheduleNextPortal(state.nextPortalAt);
   }
 }
 
@@ -2500,8 +2571,16 @@ function syncStats() {
   dom.correctAnswers.textContent = String(state.correctAnswers);
   dom.accuracy.textContent = `${accuracy}%`;
   dom.academyPointsDrawer.textContent = String(state.academyPoints);
-  dom.nextLesson.textContent = `${Math.max(0, state.nextPortalAt - state.score)} puntos`;
-  dom.meterFill.style.width = `${clamp((PORTAL_STEP - Math.max(0, state.nextPortalAt - state.score)) / PORTAL_STEP, 0, 1) * 100}%`;
+  if (state.portalPending) {
+    dom.nextLesson.textContent = "Portal listo";
+    dom.meterFill.style.width = "100%";
+  } else {
+    const distanceToPortal = Math.max(0, state.nextPortalAt - state.score);
+    const [minStep, maxStep] = getPortalStepRange();
+    const meterBase = clamp(maxStep - minStep + 1, 1, PORTAL_PROGRESS_MAX);
+    dom.nextLesson.textContent = `${distanceToPortal} puntos`;
+    dom.meterFill.style.width = `${clamp((meterBase - distanceToPortal) / meterBase, 0, 1) * 100}%`;
+  }
 
   if (state.leaderboard.length === 0) {
     dom.leaderboardList.innerHTML = "<li>Sin registros todavía.</li>";
