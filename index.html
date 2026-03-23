@@ -70,6 +70,14 @@
           </div>
         </section>
 
+        <section class="hud-card hud-card--wide">
+          <span>Misión de la partida</span>
+          <strong id="runMissionTitle">Recoge 8 monedas</strong>
+          <div class="mini-meter">
+            <div id="runMissionFill" class="mini-meter__fill"></div>
+          </div>
+        </section>
+
         <section class="hud-card hud-card--wide hud-card--effects">
           <span>Ventajas activas</span>
           <div id="effectsList" class="effects-list">Sin ventajas</div>
@@ -119,6 +127,22 @@
             <div id="levelLoaderFill" class="level-loader__fill"></div>
           </div>
           <p id="levelHint" class="level-card__hint">Preparando el siguiente reto...</p>
+        </div>
+      </div>
+
+      <div id="confirmOverlay" class="confirm-overlay hidden" aria-live="polite">
+        <div class="confirm-card">
+          <p class="confirm-card__eyebrow">Confirmar compra</p>
+          <h2 id="confirmTitle">¿Quieres comprar esto?</h2>
+          <p id="confirmText" class="confirm-card__text"></p>
+          <div class="confirm-card__price">
+            <span>Precio</span>
+            <strong id="confirmPrice">0 puntos</strong>
+          </div>
+          <div class="quiz-actions">
+            <button id="confirmBuyBtn" class="primary-btn" type="button">Sí, comprar</button>
+            <button id="confirmCancelBtn" class="secondary-btn" type="button">Cancelar</button>
+          </div>
         </div>
       </div>
 

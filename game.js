@@ -1,6 +1,6 @@
 const STORAGE_KEY = "flappyKidsAcademy.v2";
 const PORTAL_PROGRESS_MAX = 18;
-const LEVEL_LENGTH = 6;
+const LEVEL_LENGTH = 40;
 const APP_META = {
   version: "1.0.0",
   publishedAt: "2026-03-22",
@@ -62,7 +62,8 @@ const powerups = [
   { id: "star", label: "Estrella", emoji: "⭐", color: "#ffd166" },
   { id: "wings", label: "Alas suaves", emoji: "🪽", color: "#80ed99" },
   { id: "heart", label: "Corazón", emoji: "❤️", color: "#ff4d6d" },
-  { id: "coin", label: "Moneda", emoji: "🪙", color: "#ffca3a" }
+  { id: "coin", label: "Moneda", emoji: "🪙", color: "#ffca3a" },
+  { id: "magnet", label: "Imán de monedas", emoji: "🧲", color: "#ff595e" }
 ];
 
 const tips = [
@@ -105,6 +106,21 @@ const eventTemplates = {
   jungle: { id: "bloom_path", label: "Selva en flor", duration: 5200, description: "Aparecen más monedas y flores suaves." },
   ocean: { id: "tide_bonus", label: "Marea brillante", duration: 5200, description: "Más monedas entre corales y burbujas." }
 };
+
+const specialEventPool = [
+  { id: "coin_rain", label: "Lluvia de monedas", duration: 5200, description: "Aparecen más monedas en la ruta." },
+  { id: "low_gravity", label: "Baja gravedad", duration: 4800, description: "El pajarito cae más lento por unos segundos." },
+  { id: "magnet_party", label: "Fiesta magnética", duration: 4400, description: "Las monedas se acercan con más facilidad." }
+];
+
+const runMissionTemplates = [
+  { id: "collect_coins", label: "Recoge 8 monedas", target: 8, reward: 6, description: "Junta monedas durante este vuelo." },
+  { id: "use_portal", label: "Entra a 1 portal", target: 1, reward: 7, description: "Explora un portal especial." },
+  { id: "take_powerup", label: "Consigue 3 ayudas", target: 3, reward: 5, description: "Toma escudos, alas, corazones o imanes." },
+  { id: "score_run", label: "Llega a 20 puntos", target: 20, reward: 8, description: "Mantén el vuelo y suma puntos." },
+  { id: "bonus_trip", label: "Visita el mundo bonus", target: 1, reward: 9, description: "Entra al portal dorado del bonus." },
+  { id: "danger_portal", label: "Acepta el portal rojo", target: 1, reward: 10, description: "Completa un desafío intenso." }
+];
 
 const colorQuestions = [
   { ages: ["4-6", "7-9"], prompt: "¿Qué color se forma al mezclar amarillo y azul?", answer: "Verde", options: ["Verde", "Rojo", "Negro"], fact: "Amarillo + azul = verde." },
@@ -165,6 +181,8 @@ const dom = {
   academyPointsValue: document.getElementById("academyPointsValue"),
   nextLesson: document.getElementById("nextLesson"),
   meterFill: document.getElementById("meterFill"),
+  runMissionTitle: document.getElementById("runMissionTitle"),
+  runMissionFill: document.getElementById("runMissionFill"),
   effectsList: document.getElementById("effectsList"),
   environmentLabel: document.getElementById("environmentLabel"),
   environmentSummary: document.getElementById("environmentSummary"),
@@ -191,6 +209,12 @@ const dom = {
   levelSummary: document.getElementById("levelSummary"),
   levelLoaderFill: document.getElementById("levelLoaderFill"),
   levelHint: document.getElementById("levelHint"),
+  confirmOverlay: document.getElementById("confirmOverlay"),
+  confirmTitle: document.getElementById("confirmTitle"),
+  confirmText: document.getElementById("confirmText"),
+  confirmPrice: document.getElementById("confirmPrice"),
+  confirmBuyBtn: document.getElementById("confirmBuyBtn"),
+  confirmCancelBtn: document.getElementById("confirmCancelBtn"),
   toast: document.getElementById("toast"),
   menuToggleBtn: document.getElementById("menuToggleBtn"),
   closeDrawerBtn: document.getElementById("closeDrawerBtn"),
@@ -243,6 +267,7 @@ const state = {
   lives: 3,
   maxLives: 3,
   academyPoints: storage.academyPoints || 0,
+  displayAcademyPoints: storage.academyPoints || 0,
   upgrades: normalizeUpgrades(storage.upgrades),
   missions: normalizeMissions(storage.missions),
   topicStats: normalizeTopicStats(storage.topicStats),
@@ -265,7 +290,7 @@ const state = {
   stars: [],
   ambientParticles: [],
   bird: createBird(),
-  effects: { shield: 0, slow: 0, wings: 0 },
+  effects: { shield: 0, slow: 0, wings: 0, magnet: 0 },
   spawnTimer: 0,
   nextPortalAt: getInitialPortalTarget(storage.difficulty || difficulties[1].id),
   portalPending: false,
@@ -300,7 +325,10 @@ const state = {
   recentPortalKinds: [],
   portalCount: 0,
   levelIndex: 0,
-  levelTransition: null
+  levelTransition: null,
+  pendingPurchaseId: null,
+  academyPointsPulseMs: 0,
+  runMission: null
 };
 
 init();
@@ -353,6 +381,8 @@ function bindEvents() {
   dom.downloadAndroidBtnTop.addEventListener("click", () => handleDownloadClick("android"));
   dom.checkUpdatesBtn.addEventListener("click", () => checkForUpdates(false));
   dom.updateNowBtn.addEventListener("click", openUpdatePage);
+  dom.confirmBuyBtn.addEventListener("click", confirmPurchase);
+  dom.confirmCancelBtn.addEventListener("click", cancelPurchase);
   dom.pauseBtn.addEventListener("click", () => {
     if (state.mode === "playing") {
       pauseGame();
@@ -480,6 +510,7 @@ function startGame() {
   state.maxLives = 3 + state.upgrades.extraHeart;
   state.lives = state.maxLives;
   state.effects = { shield: 1600 + state.upgrades.starterShield * 900, slow: 0, wings: 0 };
+  state.effects.magnet = 0;
   state.spawnTimer = 0;
   state.nextPortalAt = getInitialPortalTarget();
   state.portalPending = false;
@@ -503,6 +534,7 @@ function startGame() {
   state.portalCount = 0;
   state.levelIndex = 0;
   state.levelTransition = null;
+  state.runMission = createRunMission();
 
   setEnvironmentByScore(true);
   dom.quizOverlay.classList.add("hidden");
@@ -591,6 +623,14 @@ function enterPortal(portal) {
     dom.quizPrompt.textContent = "Encontraste una puerta brillante";
     dom.quizStatus.textContent = "Podrás viajar a otro mundo por unos segundos para agarrar la mayor cantidad de monedas posible.";
     setQuizFeedback("Si no quieres entrar, continúas la partida normal sin castigo.", "neutral");
+  } else if (portal.kind === "danger") {
+    dom.quizEyebrow.textContent = "Portal rojo";
+    dom.quizSceneTitle.textContent = "Desafío valiente";
+    dom.quizPrimaryBtn.textContent = "Entrar al desafío";
+    dom.quizSecondaryBtn.textContent = "Seguir volando";
+    dom.quizPrompt.textContent = "Encontraste un portal intenso";
+    dom.quizStatus.textContent = "Aquí el reto es más difícil, pero da mejores premios y más monedas.";
+    setQuizFeedback("Si aceptas, entrarás a una ronda más exigente con recompensa mayor.", "neutral");
   } else {
     dom.quizEyebrow.textContent = portal.kind === "tree" ? "Árbol del saber" : "Túnel de retos";
     dom.quizSceneTitle.textContent = portal.kind === "tree" ? "Desafío de aprendizaje" : "Ruta de preguntas";
@@ -600,6 +640,9 @@ function enterPortal(portal) {
     dom.quizStatus.textContent = `Reto opcional de ${state.challengeSession.total} preguntas para nivel ${getDifficulty().label}.`;
     setQuizFeedback("Si aceptas, cada respuesta correcta suma puntos del juego, monedas y ventajas.", "neutral");
   }
+  updateRunMission("use_portal", 1);
+  if (portal.kind === "bonus") updateRunMission("bonus_trip", 1);
+  if (portal.kind === "danger") updateRunMission("danger_portal", 1);
   updateMission("take_portals", 1);
 }
 
@@ -637,13 +680,13 @@ function createChallengeSession(kind) {
     "intermedio": 3,
     "avanzado": 4
   };
-  const total = questionsByLevel[state.difficulty] || 2;
+  const total = (questionsByLevel[state.difficulty] || 2) + (kind === "danger" ? 1 : 0);
   return {
     kind,
     total,
     index: 0,
     correct: 0,
-    bonusMultiplier: getAcademyMultiplier(),
+    bonusMultiplier: getAcademyMultiplier() + (kind === "danger" ? 0.5 : 0),
     questions: buildQuestionSet(total)
   };
 }
@@ -718,6 +761,7 @@ function finishChallengeSession() {
 
   state.score += rewards.scorePoints;
   state.academyPoints += rewards.academyPoints;
+  updateRunMission("score_run", rewards.scorePoints);
   updatePortalMilestones();
   rewards.powerups.forEach((powerup) => applyPowerup(powerup, true));
 
@@ -729,8 +773,8 @@ function finishChallengeSession() {
   dom.quizPrimaryBtn.textContent = "Volver al juego";
   dom.quizSecondaryBtn.textContent = "Continuar";
   dom.quizEyebrow.textContent = "Resultado del reto";
-  dom.quizSceneTitle.textContent = session.kind === "tree" ? "Bosque del saber" : "Túnel completado";
-  dom.quizPrompt.textContent = session.kind === "tree" ? "Reto del Árbol completado" : "Reto del Túnel completado";
+  dom.quizSceneTitle.textContent = session.kind === "tree" ? "Bosque del saber" : session.kind === "danger" ? "Portal rojo superado" : "Túnel completado";
+  dom.quizPrompt.textContent = session.kind === "tree" ? "Reto del Árbol completado" : session.kind === "danger" ? "Desafío rojo completado" : "Reto del Túnel completado";
   dom.quizStatus.textContent = `Aciertos: ${session.correct} de ${session.total}`;
   setQuizFeedback(buildRewardSummary(rewards), "success");
   persistAll();
@@ -790,6 +834,37 @@ function maybeAdvanceLevel() {
     return;
   }
   startLevelTransition(nextLevel);
+}
+
+function createRunMission() {
+  const forbidden = new Set();
+  if (state.score < 10) forbidden.add("bonus_trip");
+  if (state.score < 10) forbidden.add("danger_portal");
+  const pool = runMissionTemplates.filter((mission) => !forbidden.has(mission.id));
+  const template = pickFrom(pool);
+  return {
+    id: template.id,
+    label: template.label,
+    target: template.target,
+    reward: template.reward,
+    progress: 0,
+    completed: false
+  };
+}
+
+function updateRunMission(missionId, amount) {
+  if (!state.runMission || state.runMission.id !== missionId || state.runMission.completed) {
+    return;
+  }
+  state.runMission.progress = Math.min(state.runMission.target, state.runMission.progress + amount);
+  if (state.runMission.progress >= state.runMission.target) {
+    state.runMission.completed = true;
+    state.academyPoints += state.runMission.reward;
+    state.academyPointsPulseMs = 520;
+    sfxCorrect();
+    showToast(`Misión lograda: +${state.runMission.reward} puntos premio.`);
+  }
+  syncStats();
 }
 
 function startLevelTransition(nextLevel) {
@@ -866,6 +941,7 @@ function finishBonusRound() {
   state.score += scoreGain;
   state.bestScore = Math.max(state.bestScore, state.score);
   state.academyPoints += academyGain;
+  updateRunMission("score_run", scoreGain);
   updatePortalMilestones();
   state.mode = "challenge-result";
   setQuizScene("result");
@@ -881,7 +957,6 @@ function finishBonusRound() {
   dom.quizFeedback.textContent = `Ganaste +${academyGain} monedas premio y +${scoreGain} puntos de juego.`;
   state.bonusSession = null;
   syncEventBanner();
-  maybeAdvanceLevel();
   persistAll();
   syncStats();
 }
@@ -899,6 +974,11 @@ function resolveChallengeRewards(correct, total) {
     academyPoints: Math.round(correct * weight * (state.challengeSession?.bonusMultiplier || 1)),
     powerups: []
   };
+
+  if (state.challengeSession?.kind === "danger") {
+    rewards.scorePoints += weight;
+    rewards.academyPoints += Math.round(weight * 2);
+  }
 
   if (correct >= Math.ceil(total / 2)) {
     rewards.powerups.push("shield");
@@ -955,9 +1035,12 @@ function update(dt, deltaMs) {
   updateToast(deltaMs);
   updateAmbient(dt, deltaMs);
   updateParticles(dt);
+  updateAnimatedCounters(deltaMs);
   tickEvent(deltaMs);
   state.damageFlashMs = Math.max(0, state.damageFlashMs - deltaMs);
   state.cameraShakeMs = Math.max(0, state.cameraShakeMs - deltaMs);
+  state.academyPointsPulseMs = Math.max(0, state.academyPointsPulseMs - deltaMs);
+  syncAcademyPulse();
 
   if (state.mode === "level-transition") {
     tickLevelTransition(deltaMs);
@@ -1082,6 +1165,7 @@ function updateBird(dt, world) {
   const maxFall = state.effects.wings > 0 ? 6.5 : 8.8;
   if (state.activeEvent?.id === "butterflies") gravity *= 0.9;
   if (state.activeEvent?.id === "heat_wave") gravity *= 0.86;
+  if (state.activeEvent?.id === "low_gravity") gravity *= 0.72;
   state.bird.vy += gravity * dt;
   if (state.activeEvent?.id === "wind_push") {
     state.bird.vy += Math.sin(state.tick * 0.08) * 0.08 * dt;
@@ -1111,6 +1195,7 @@ function updatePipes(dt, speed, world) {
       if (!portalWasPending && state.portalPending) {
         showToast("Se acerca un portal de reto opcional.");
       }
+      updateRunMission("score_run", 1);
       sfxScore();
       spawnBurst(world.birdX + 18, state.bird.y - 10, "#ffe066", 8, 1.1);
       maybeAdvanceLevel();
@@ -1141,6 +1226,17 @@ function updateCollectibles(dt, speed, world) {
     item.x -= speed * dt;
     item.phase += 0.08 * dt;
     item.y = item.baseY + Math.sin(item.phase) * 8;
+
+    if (state.effects.magnet > 0 && (item.kind === "coin" || item.kind === "star")) {
+      const dx = world.birdX - item.x;
+      const dy = state.bird.y - item.y;
+      const distanceToBird = Math.hypot(dx, dy);
+      if (distanceToBird < 180) {
+        item.x += dx * 0.06 * dt;
+        item.y += dy * 0.06 * dt;
+        item.baseY = item.y;
+      }
+    }
 
     if (distance(world.birdX, state.bird.y, item.x, item.y) < item.radius + 18) {
       applyPowerup(item.kind);
@@ -1243,6 +1339,7 @@ function maybeSpawnSet(preset, world) {
   if (state.activeEvent?.id === "butterflies") collectibleChance += 0.22;
   if (state.activeEvent?.id === "prism_bonus") collectibleChance += 0.1;
   if (state.activeEvent?.id === "bloom_path" || state.activeEvent?.id === "tide_bonus") collectibleChance += 0.14;
+  if (state.activeEvent?.id === "coin_rain") collectibleChance += 0.12;
   let hazardChance = preset.hazardChance;
   if (state.upgrades.portalScout > 0) hazardChance -= 0.04 * state.upgrades.portalScout;
   if (state.activeEvent?.id === "moon_glow") hazardChance -= 0.04;
@@ -1265,7 +1362,7 @@ function maybeSpawnSet(preset, world) {
   }
 
   const coinCount = Math.random() < 0.55 ? (Math.random() < 0.34 ? 3 : 2) : 1;
-  if (Math.random() < 0.72) {
+  if (Math.random() < (state.activeEvent?.id === "coin_rain" ? 0.96 : 0.8)) {
     const coinStartX = pipeX + world.pipeWidth + randomBetween(22, 82);
     const coinBaseY = top + gap * randomBetween(0.26, 0.74);
     for (let index = 0; index < coinCount; index += 1) {
@@ -1429,6 +1526,10 @@ function applyPowerup(kind, silent = false) {
     state.effects.wings = 4200;
     if (!silent) showToast("Alas suaves activadas.");
   }
+  if (kind === "magnet") {
+    state.effects.magnet = 5200;
+    if (!silent) showToast("Imán de monedas activado.");
+  }
   if (kind === "heart") {
     if (state.lives < state.maxLives) {
       state.lives += 1;
@@ -1440,6 +1541,7 @@ function applyPowerup(kind, silent = false) {
   }
   if (kind === "coin") {
     state.academyPoints += Math.max(1, Math.round(getAcademyMultiplier()));
+    updateRunMission("collect_coins", 1);
     if (!silent) showToast("Moneda recogida.");
   }
 
@@ -1447,6 +1549,9 @@ function applyPowerup(kind, silent = false) {
   spawnBurst(getWorld().birdX, state.bird.y - 10, findPowerup(kind).color, 12);
   if (kind !== "coin") {
     updateMission("collect_powerups", 1);
+    if (kind !== "star") {
+      updateRunMission("take_powerup", 1);
+    }
   }
   syncStats();
   persistAll();
@@ -1461,6 +1566,7 @@ function tickEffects(deltaMs) {
   state.effects.shield = Math.max(0, state.effects.shield - deltaMs);
   state.effects.slow = Math.max(0, state.effects.slow - deltaMs);
   state.effects.wings = Math.max(0, state.effects.wings - deltaMs);
+  state.effects.magnet = Math.max(0, state.effects.magnet - deltaMs);
   syncEffects();
 }
 
@@ -1632,6 +1738,7 @@ function drawBackLayers(world, env) {
   });
 
   drawAmbient(world, env);
+  drawWorldFriends(world, env);
 }
 
 function drawAmbient(world, env) {
@@ -1690,6 +1797,54 @@ function drawAmbient(world, env) {
       ctx.stroke();
     }
   });
+}
+
+function drawWorldFriends(world, env) {
+  const shift = state.worldShift;
+
+  if (env.id === "garden" || env.id === "jungle") {
+    for (let index = 0; index < 4; index += 1) {
+      const x = ((index * 190) - shift * 0.32) % (world.width + 220);
+      const drawX = x < -40 ? x + world.width + 220 : x;
+      const y = 120 + Math.sin(state.tick * 0.04 + index) * 18;
+      ctx.fillStyle = index % 2 === 0 ? "#ff8fab" : "#ffd166";
+      ctx.beginPath();
+      ctx.ellipse(drawX, y, 10, 6, 0.2, 0, Math.PI * 2);
+      ctx.ellipse(drawX - 10, y - 6, 6, 4, -0.5, 0, Math.PI * 2);
+      ctx.ellipse(drawX + 10, y - 6, 6, 4, 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (env.id === "ocean") {
+    for (let index = 0; index < 4; index += 1) {
+      const x = ((index * 220) - shift * 0.28) % (world.width + 240);
+      const drawX = x < -40 ? x + world.width + 240 : x;
+      const y = world.height * 0.36 + Math.sin(state.tick * 0.03 + index) * 22;
+      ctx.fillStyle = index % 2 === 0 ? "#ffd166" : "#90e0ef";
+      ctx.beginPath();
+      ctx.ellipse(drawX, y, 18, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(drawX - 18, y);
+      ctx.lineTo(drawX - 30, y - 8);
+      ctx.lineTo(drawX - 30, y + 8);
+      ctx.closePath();
+      ctx.fill();
+    }
+  } else if (env.id === "night") {
+    for (let index = 0; index < 3; index += 1) {
+      const x = ((index * 240) - shift * 0.25) % (world.width + 260);
+      const drawX = x < -40 ? x + world.width + 260 : x;
+      const y = 110 + Math.sin(state.tick * 0.05 + index) * 12;
+      ctx.fillStyle = "rgba(255,255,255,0.18)";
+      ctx.beginPath();
+      ctx.moveTo(drawX - 14, y + 2);
+      ctx.quadraticCurveTo(drawX - 2, y - 14, drawX, y);
+      ctx.quadraticCurveTo(drawX + 2, y - 14, drawX + 14, y + 2);
+      ctx.quadraticCurveTo(drawX + 4, y - 2, drawX, y + 8);
+      ctx.quadraticCurveTo(drawX - 4, y - 2, drawX - 14, y + 2);
+      ctx.fill();
+    }
+  }
 }
 
 function drawPipes(world, env) {
@@ -1940,6 +2095,26 @@ function drawPortals() {
       ctx.beginPath();
       ctx.arc(0, 0, 16 + Math.sin(portal.phase) * 1.4, 0, Math.PI * 2);
       ctx.fill();
+    } else if (portal.kind === "danger") {
+      ctx.strokeStyle = "#7f1d1d";
+      ctx.lineWidth = 12;
+      ctx.beginPath();
+      ctx.arc(0, 0, 24, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = "#ff595e";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.arc(0, 0, 20, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255, 89, 94, 0.35)";
+      ctx.beginPath();
+      ctx.arc(0, 0, 16 + Math.sin(portal.phase) * 1.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 20px Trebuchet MS";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("!", 0, 1);
     } else {
       ctx.fillStyle = "#ffd166";
       ctx.beginPath();
@@ -2166,6 +2341,14 @@ function drawBird(world) {
     ctx.lineTo(-42, 2);
     ctx.moveTo(-22, 12);
     ctx.lineTo(-38, 18);
+    ctx.stroke();
+  }
+
+  if (state.effects.magnet > 0) {
+    ctx.strokeStyle = "#ff595e";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, 32 + Math.sin(state.tick * 0.18) * 3, 0, Math.PI * 2);
     ctx.stroke();
   }
 
@@ -2566,8 +2749,12 @@ function maybeTriggerEvent() {
   }
 
   state.lastEventScore = triggerScore;
-  const template = eventTemplates[getEnvironment().id];
+  const pool = [eventTemplates[getEnvironment().id], ...specialEventPool];
+  const template = pickFrom(pool);
   state.activeEvent = { ...template };
+  if (template.id === "magnet_party") {
+    state.effects.magnet = Math.max(state.effects.magnet, template.duration);
+  }
   state.eventTimerMs = template.duration;
   syncEventBanner();
   showToast(`${template.label}: ${template.description}`);
@@ -2608,6 +2795,9 @@ function getAcademyMultiplier() {
   if (state.activeEvent?.id === "prism_bonus") {
     multiplier += 0.35;
   }
+  if (state.activeEvent?.id === "coin_rain") {
+    multiplier += 0.2;
+  }
   return multiplier;
 }
 
@@ -2633,7 +2823,7 @@ function pickPortalKind() {
     return "bonus";
   }
 
-  const choices = ["tunnel", "tunnel", "tree"];
+  const choices = ["tunnel", "tunnel", "tree", "danger"];
   if (state.score >= 28) {
     choices.push("bonus");
   }
@@ -2672,11 +2862,11 @@ function syncStats() {
   dom.scoreValue.textContent = String(state.score);
   dom.bestValue.textContent = String(state.bestScore);
   dom.livesValue.textContent = "❤️".repeat(state.lives) + "🖤".repeat(Math.max(0, state.maxLives - state.lives));
-  dom.academyPointsValue.textContent = String(state.academyPoints);
+  dom.academyPointsValue.textContent = String(Math.round(state.displayAcademyPoints));
   dom.gamesPlayed.textContent = String(state.gamesPlayed);
   dom.correctAnswers.textContent = String(state.correctAnswers);
   dom.accuracy.textContent = `${accuracy}%`;
-  dom.academyPointsDrawer.textContent = String(state.academyPoints);
+  dom.academyPointsDrawer.textContent = String(Math.round(state.displayAcademyPoints));
   if (state.portalPending) {
     dom.nextLesson.textContent = "Portal listo";
     dom.meterFill.style.width = "100%";
@@ -2684,8 +2874,15 @@ function syncStats() {
     const distanceToPortal = Math.max(0, state.nextPortalAt - state.score);
     const [minStep, maxStep] = getPortalStepRange();
     const meterBase = clamp(maxStep - minStep + 1, 1, PORTAL_PROGRESS_MAX);
-    dom.nextLesson.textContent = `${distanceToPortal} puntos`;
-    dom.meterFill.style.width = `${clamp((meterBase - distanceToPortal) / meterBase, 0, 1) * 100}%`;
+  dom.nextLesson.textContent = `${distanceToPortal} puntos`;
+  dom.meterFill.style.width = `${clamp((meterBase - distanceToPortal) / meterBase, 0, 1) * 100}%`;
+  }
+
+  if (state.runMission) {
+    dom.runMissionTitle.textContent = state.runMission.completed
+      ? `${state.runMission.label} · Listo`
+      : `${state.runMission.label} · ${Math.min(state.runMission.progress, state.runMission.target)}/${state.runMission.target}`;
+    dom.runMissionFill.style.width = `${clamp(state.runMission.progress / state.runMission.target, 0, 1) * 100}%`;
   }
 
   if (state.leaderboard.length === 0) {
@@ -2700,11 +2897,34 @@ function syncStats() {
   renderShop();
 }
 
+function updateAnimatedCounters(deltaMs) {
+  if (state.displayAcademyPoints === state.academyPoints) {
+    return;
+  }
+
+  const difference = state.academyPoints - state.displayAcademyPoints;
+  const step = Math.sign(difference) * Math.max(1, Math.ceil(Math.abs(difference) * deltaMs / 180));
+  if (Math.abs(difference) <= Math.abs(step)) {
+    state.displayAcademyPoints = state.academyPoints;
+  } else {
+    state.displayAcademyPoints += step;
+  }
+  dom.academyPointsValue.textContent = String(Math.round(state.displayAcademyPoints));
+  dom.academyPointsDrawer.textContent = String(Math.round(state.displayAcademyPoints));
+}
+
+function syncAcademyPulse() {
+  const active = state.academyPointsPulseMs > 0;
+  dom.academyPointsValue.classList.toggle("is-pulsing", active);
+  dom.academyPointsDrawer.classList.toggle("is-pulsing", active);
+}
+
 function syncEffects() {
   const items = [];
   if (state.effects.shield > 0) items.push("🛡️ Escudo");
   if (state.effects.slow > 0) items.push("⏱️ Tiempo lento");
   if (state.effects.wings > 0) items.push("🪽 Alas suaves");
+  if (state.effects.magnet > 0) items.push("🧲 Imán");
   if (state.safeReturnMs > 0) items.push("✨ Salida segura");
 
   if (items.length === 0) {
@@ -2787,8 +3007,12 @@ function renderShop() {
           <span class="level-badge">${isMax ? "Listo" : "Mejora"}</span>
         </div>
         <p>${upgrade.description}</p>
+        <div class="shop-card__price">
+          <span>Precio</span>
+          <strong>${isMax ? "Completo" : `${cost} puntos`}</strong>
+        </div>
         <div class="shop-card__facts">
-          <span class="price-badge">${isMax ? "Completo" : `${cost} monedas`}</span>
+          <span class="price-badge">${isMax ? "Listo" : "Se descuenta al comprar"}</span>
           <span class="topic-badge">${upgradeEffectText(upgrade.id, level)}</span>
         </div>
         <button class="secondary-btn" type="button" data-upgrade-id="${upgrade.id}" ${isMax ? "disabled" : ""}>
@@ -2830,16 +3054,31 @@ function renderTopicStats() {
     const stats = state.topicStats[topic.id];
     const accuracy = stats.total === 0 ? 0 : Math.round((stats.correct / stats.total) * 100);
     const badge = stats.correct >= 15 ? "Medalla oro" : stats.correct >= 8 ? "Medalla plata" : stats.correct >= 3 ? "Medalla bronce" : "En progreso";
+    const progress = clamp(stats.correct / 15, 0, 1);
     return `
       <article class="topic-card">
         <div class="topic-card__head">
           <h3>${topic.label}</h3>
           <span class="topic-badge">${badge}</span>
         </div>
-        <p>Aciertos: ${stats.correct} · Intentos: ${stats.total}</p>
+        <div class="topic-card__score">
+          <article>
+            <span>Aciertos</span>
+            <strong>${stats.correct}</strong>
+          </article>
+          <article>
+            <span>Intentos</span>
+            <strong>${stats.total}</strong>
+          </article>
+          <article>
+            <span>Precisión</span>
+            <strong>${accuracy}%</strong>
+          </article>
+        </div>
+        <div class="topic-card__progress"><div class="topic-card__progress-fill" style="width:${progress * 100}%"></div></div>
         <div class="topic-card__meta">
-          <span class="level-badge">${accuracy}% precisión</span>
-          <span class="price-badge">${Math.max(0, 15 - stats.correct)} para oro</span>
+          <span class="level-badge">Te faltan ${Math.max(0, 15 - stats.correct)} para oro</span>
+          <span class="price-badge">${badge}</span>
         </div>
       </article>
     `;
@@ -2860,14 +3099,52 @@ function buyUpgrade(upgradeId) {
     showToast("No tienes suficientes puntos premio.");
     return;
   }
+  openPurchaseConfirm(upgrade, cost);
+}
+
+function openPurchaseConfirm(upgrade, cost) {
+  state.pendingPurchaseId = upgrade.id;
+  dom.confirmTitle.textContent = `¿Comprar ${upgrade.name}?`;
+  dom.confirmText.textContent = `${upgrade.description} Ahora tienes ${state.academyPoints} puntos y se descontarán automáticamente al confirmar.`;
+  dom.confirmPrice.textContent = `${cost} puntos`;
+  dom.confirmOverlay.classList.remove("hidden");
+}
+
+function cancelPurchase() {
+  state.pendingPurchaseId = null;
+  dom.confirmOverlay.classList.add("hidden");
+}
+
+function confirmPurchase() {
+  if (!state.pendingPurchaseId) {
+    cancelPurchase();
+    return;
+  }
+
+  const upgrade = upgradeCatalog.find((item) => item.id === state.pendingPurchaseId);
+  if (!upgrade) {
+    cancelPurchase();
+    return;
+  }
+
+  const level = state.upgrades[upgrade.id];
+  const cost = getUpgradeCost(upgrade, level);
+  if (state.academyPoints < cost) {
+    cancelPurchase();
+    showToast("Ya no tienes suficientes puntos.");
+    return;
+  }
 
   state.academyPoints -= cost;
   state.upgrades[upgrade.id] += 1;
   state.maxLives = 3 + state.upgrades.extraHeart;
   state.lives = state.mode === "playing" ? Math.min(state.lives, state.maxLives) : state.maxLives;
+  state.academyPointsPulseMs = 480;
   persistAll();
   syncStats();
   renderShop();
+  cancelPurchase();
+  sfxPurchase();
   showToast(`Compraste ${upgrade.name}.`);
 }
 
@@ -2878,8 +3155,8 @@ function getUpgradeCost(upgrade, currentLevel) {
 function upgradeEffectText(upgradeId, level) {
   if (upgradeId === "starterShield") return `+${level * 0.9}s inicio`;
   if (upgradeId === "extraHeart") return `+${level} vida máx`;
-  if (upgradeId === "academyBoost") return `x${(1 + level * 0.25).toFixed(2)}`;
-  if (upgradeId === "portalScout") return `+${level * 40}px portal`;
+  if (upgradeId === "academyBoost") return `x${(1 + level * 0.25).toFixed(2)} premio`;
+  if (upgradeId === "portalScout") return `+${level * 40}px espacio`;
   return "";
 }
 
@@ -3188,6 +3465,12 @@ function sfxShield() {
 function sfxCorrect() {
   playTone(740, 0.08, "square", 0.05);
   window.setTimeout(() => playTone(1046, 0.08, "triangle", 0.045), 90);
+}
+
+function sfxPurchase() {
+  playTone(660, 0.07, "square", 0.05);
+  window.setTimeout(() => playTone(880, 0.08, "triangle", 0.045), 90);
+  window.setTimeout(() => playTone(1108, 0.08, "triangle", 0.04), 170);
 }
 
 function sfxWrong() {
